@@ -36,14 +36,26 @@ export const extractTypeNames = (sdl: string): string[] => {
 
 export const generateQuerySDL = (typeNames: string[]): string => {
   return `
+    scalar JSON
+
+    input WhereInput {
+      ${['value', 'in', 'notIn', 'gt', 'gte', 'lt', 'lte'].map((op) => `String_${op}: [String!]`).join('\n    ')}
+    }
+
     type Query {
       ${typeNames
         .map(
           (name) => `
-        ${name.toLowerCase()}s(limit: Int = 10, offset: Int = 0): [${name}!]!
+        ${name.toLowerCase()}s(
+          limit: Int = 10,
+          offset: Int = 0,
+          orderBy: String,
+          order: String = "asc",
+          where: JSON
+        ): [${name}!]!
         ${name.toLowerCase()}(id: Int!): ${name}
         ${name.toLowerCase()}Count: Int!
-        ${name.toLowerCase()}By(field: String!, value: String!): ${name}`,
+        ${name.toLowerCase()}Get(field: String!, value: String!): [${name}!]!`,
         )
         .join('\n')}
     }
