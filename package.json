@@ -22,12 +22,16 @@
   "dependencies": {
     "@graphql-tools/schema": "^10.0.23",
     "@graphql-tools/utils": "^10.8.6",
+    "@keyv/redis": "^4.4.0",
+    "@nestjs/cache-manager": "^3.0.1",
     "@nestjs/common": "^11.0.1",
     "@nestjs/config": "^4.0.2",
     "@nestjs/core": "^11.0.1",
     "@nestjs/mapped-types": "*",
     "@nestjs/platform-express": "^11.0.1",
     "@prisma/client": "^6.9.0",
+    "cache-manager": "^7.0.0",
+    "cacheable": "^1.10.0",
     "express-graphql": "^0.12.0",
     "graphql": "^16.11.0",
     "graphql-tag": "^2.12.6",
@@ -78,6 +82,5 @@
     ],
     "coverageDirectory": "../coverage",
     "testEnvironment": "node"
-  },
-  "packageManager": "yarn@1.22.22+sha512.a6b2f7906b721bba3d67d4aff083df04dad64c399707841b7acf00f6b133b7ac24255f2652fa22ae3534329dc6180534e98d17432037ff6fd140556e2bb3137e"
+  }
 }
