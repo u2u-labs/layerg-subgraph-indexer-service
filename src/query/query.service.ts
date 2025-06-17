@@ -2,12 +2,13 @@ import { makeExecutableSchema } from '@graphql-tools/schema';
 import { IResolvers } from '@graphql-tools/utils';
 import { Inject, Injectable } from '@nestjs/common';
 import { readFileSync } from 'fs';
-import { GraphQLSchema, parse } from 'graphql';
+import { GraphQLSchema, ObjectTypeDefinitionNode, parse } from 'graphql';
 import { join } from 'path';
 import { PrismaService } from '../prisma/prisma.service';
 import {
   extractTypeNames,
   generateQuerySDL,
+  getRelationType,
   isObjectTypeDefinitionNode,
   removeQueryType,
 } from '../utils';
@@ -31,6 +32,7 @@ export class QueryService {
     const resolvers: IResolvers = {
       Query: {},
     };
+    const typeMap: Record<string, ObjectTypeDefinitionNode> = {};
 
     for (const def of ast.definitions) {
       if (isObjectTypeDefinitionNode(def) && def.name.value !== 'Query') {
@@ -154,11 +156,39 @@ export class QueryService {
 
         resolvers[typeName] = {};
         for (const field of def.fields ?? []) {
-          resolvers[typeName][field.name.value] = (
-            parent: Record<string, unknown>,
-          ): unknown => {
-            return parent[field.name.value];
-          };
+          const relationType = getRelationType(field);
+          if (
+            relationType &&
+            relationType !== typeName &&
+            typeMap[relationType]
+          ) {
+            const relTable = `${relationType.toLowerCase()}_${chainId}`;
+            resolvers[typeName][field.name.value] = async (parent: any) => {
+              const key1 = `${field.name.value}Id`;
+              const key2 = `${field.name.value}_id`;
+              const rawValue =
+                typeof parent === 'object' && parent
+                  ? ((parent as Record<string, unknown>)[key1] ??
+                    (parent as Record<string, unknown>)[key2])
+                  : undefined;
+              const foreignKeyValue =
+                typeof rawValue === 'string' || typeof rawValue === 'number'
+                  ? rawValue
+                  : undefined;
+              if (!foreignKeyValue) return null;
+              const result = await this.prisma.$queryRawUnsafe(
+                `SELECT * FROM "public"."${relTable}" WHERE id = ${foreignKeyValue} LIMIT 1`,
+              );
+              // eslint-disable-next-line @typescript-eslint/no-unsafe-return
+              return result![0] ?? null;
+            };
+          } else {
+            resolvers[typeName][field.name.value] = (
+              parent: Record<string, unknown>,
+            ): unknown => {
+              return parent[field.name.value];
+            };
+          }
         }
       }
     }

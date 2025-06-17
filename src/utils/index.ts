@@ -1,5 +1,6 @@
 import {
   DefinitionNode,
+  FieldDefinitionNode,
   Kind,
   ObjectTypeDefinitionNode,
   parse,
@@ -39,7 +40,7 @@ export const generateQuerySDL = (typeNames: string[]): string => {
     scalar JSON
 
     input WhereInput {
-      ${['value', 'in', 'notIn', 'gt', 'gte', 'lt', 'lte'].map((op) => `String_${op}: [String!]`).join('\n    ')}
+      ${['value', 'in', 'notIn', 'gt', 'gte', 'lt', 'lte'].map((op) => `String_${op}: [String!]`).join('\n      ')}
     }
 
     type Query {
@@ -60,4 +61,20 @@ export const generateQuerySDL = (typeNames: string[]): string => {
         .join('\n')}
     }
   `;
+};
+
+export const getRelationType = (field: FieldDefinitionNode): string | null => {
+  const type = field.type;
+  if (type.kind === Kind.NAMED_TYPE) return type.name.value;
+  if (type.kind === Kind.NON_NULL_TYPE && type.type.kind === Kind.NAMED_TYPE)
+    return type.type.name.value;
+  if (type.kind === Kind.LIST_TYPE && type.type.kind === Kind.NAMED_TYPE)
+    return type.type.name.value;
+  if (
+    type.kind === Kind.NON_NULL_TYPE &&
+    type.type.kind === Kind.LIST_TYPE &&
+    type.type.type.kind === Kind.NAMED_TYPE
+  )
+    return type.type.type.name.value;
+  return null;
 };
