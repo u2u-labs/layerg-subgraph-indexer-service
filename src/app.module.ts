@@ -2,7 +2,6 @@ import { Module } from '@nestjs/common';
 import { AppController } from './app.controller';
 import { CacheableMemory } from 'cacheable';
 import { AppService } from './app.service';
-import { WebhooksModule } from './webhooks/webhooks.module';
 import { QueryModule } from './query/query.module';
 import { ConfigModule } from '@nestjs/config';
 import { PrismaModule } from './prisma/prisma.module';
@@ -10,6 +9,7 @@ import { CacheModule } from '@nestjs/cache-manager';
 import { createKeyv, Keyv } from '@keyv/redis';
 import { LoggerModule } from 'nestjs-pino';
 import { Request, Response } from 'express';
+import { SubgraphssModule } from './subgraphs/subgraphs.module';
 
 @Module({
   imports: [
@@ -67,7 +67,7 @@ import { Request, Response } from 'express';
         };
       },
     }),
-    WebhooksModule,
+    SubgraphssModule,
     QueryModule,
     PrismaModule,
   ],
