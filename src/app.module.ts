@@ -8,10 +8,48 @@ import { ConfigModule } from '@nestjs/config';
 import { PrismaModule } from './prisma/prisma.module';
 import { CacheModule } from '@nestjs/cache-manager';
 import { createKeyv, Keyv } from '@keyv/redis';
+import { LoggerModule } from 'nestjs-pino';
+import { Request, Response } from 'express';
 
 @Module({
   imports: [
     ConfigModule.forRoot(),
+    LoggerModule.forRoot({
+      pinoHttp: {
+        transport: {
+          target: 'pino-pretty',
+          options: {
+            colorize: true,
+            translateTime: 'SYS:standard',
+            ignore: 'pid,hostname',
+          },
+        },
+        serializers: {
+          req(req: Request) {
+            return {
+              method: req.method,
+              url: req.url,
+              headers: {
+                'user-agent': req.headers['user-agent'],
+              },
+            };
+          },
+          res(res: Response) {
+            return {
+              statusCode: res.statusCode,
+            };
+          },
+        },
+        // customProps: (req) => ({
+        //   userAgent: req.headers['user-agent'],
+        //   customTag: 'API-Request',
+        // }),
+        // customSuccessMessage: (req, res) =>
+        //   `${req.method} ${req.url} completed with ${res.statusCode}`,
+        // customErrorMessage: (req, res, err) =>
+        //   `${req.method} ${req.url} failed: ${err.message}`,
+      },
+    }),
     CacheModule.registerAsync({
       isGlobal: true,
       useFactory: () => {

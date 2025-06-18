@@ -6,8 +6,11 @@ import { GraphQLSchema, ObjectTypeDefinitionNode, parse } from 'graphql';
 import { join } from 'path';
 import { PrismaService } from '../prisma/prisma.service';
 import {
+  buildWhereClauses,
+  extractObjectTypes,
   extractTypeNames,
   generateQuerySDL,
+  generateWhereInputs,
   getRelationType,
   isObjectTypeDefinitionNode,
   removeQueryType,
@@ -18,6 +21,8 @@ import GraphQLJSON from 'graphql-type-json';
 
 @Injectable()
 export class QueryService {
+  private readonly cacheExpireIn = 60 * 1000; // 1 minute
+
   constructor(
     private prisma: PrismaService,
     @Inject(CACHE_MANAGER) private cacheManager: Cache,
@@ -40,7 +45,7 @@ export class QueryService {
         const plural = typeName.toLowerCase() + 's';
         const singular = typeName.toLowerCase();
         const count = singular + 'Count';
-        const tableName = `${typeName.toLowerCase()}`;
+        const tableName = `"${subgraphId}"."${typeName.toLowerCase()}_${chainId}"`;
 
         resolvers.Query[plural] = async (
           _: unknown,
@@ -48,69 +53,38 @@ export class QueryService {
             limit?: number;
             offset?: number;
             orderBy?: string;
-            order?: string;
+            orderDirection?: string;
             where?: Record<string, any>;
           },
         ) => {
-          const { limit = 10, offset = 0, orderBy, order, where = {} } = args;
+          const {
+            limit = 10,
+            offset = 0,
+            orderBy,
+            orderDirection,
+            where = {},
+          } = args;
           const orderClause = orderBy
-            ? `ORDER BY "${orderBy}" ${order?.toLowerCase() === 'desc' ? 'DESC' : 'ASC'}`
+            ? `ORDER BY "${orderBy}" ${orderDirection?.toLowerCase() === 'desc' ? 'DESC' : 'ASC'}`
             : '';
 
-          const whereClauses: string[] = [];
-          for (const [key, val] of Object.entries(where)) {
-            if (key.endsWith('_not_in') && Array.isArray(val)) {
-              const field = key.replace(/_not_in$/, '');
-              const formatted = val
-                .map((v) => (typeof v === 'number' ? v : `'${v}'`))
-                .join(', ');
-              whereClauses.push(`"${field}" NOT IN (${formatted})`);
-            } else if (key.endsWith('_in') && Array.isArray(val)) {
-              const field = key.replace(/_in$/, '');
-              const formatted = val
-                .map((v) => (typeof v === 'number' ? v : `'${v}'`))
-                .join(', ');
-              whereClauses.push(`"${field}" IN (${formatted})`);
-            } else if (key.endsWith('_gt')) {
-              const field = key.replace(/_gt$/, '');
-              whereClauses.push(
-                `"${field}" > ${typeof val === 'number' ? val : `'${val}'`}`,
-              );
-            } else if (key.endsWith('_gte')) {
-              const field = key.replace(/_gte$/, '');
-              whereClauses.push(
-                `"${field}" >= ${typeof val === 'number' ? val : `'${val}'`}`,
-              );
-            } else if (key.endsWith('_lt')) {
-              const field = key.replace(/_lt$/, '');
-              whereClauses.push(
-                `"${field}" < ${typeof val === 'number' ? val : `'${val}'`}`,
-              );
-            } else if (key.endsWith('_lte')) {
-              const field = key.replace(/_lte$/, '');
-              whereClauses.push(
-                `"${field}" <= ${typeof val === 'number' ? val : `'${val}'`}`,
-              );
-            } else if (typeof val === 'string') {
-              whereClauses.push(`"${key}" ILIKE '%${val}%'`);
-            }
-          }
+          const whereClauses: string[] = buildWhereClauses(where);
 
           const whereClause =
             whereClauses.length > 0
               ? `WHERE ${whereClauses.join(' AND ')}`
               : '';
 
-          const cacheKey = `${subgraphId}_${plural}_${chainId}:limit:${limit}:offset:${offset}:orderBy:${orderBy ?? 'none'}:order:${order}:where:${JSON.stringify(where)}`;
+          const cacheKey = `${subgraphId}_${plural}_${chainId}:limit:${limit}:offset:${offset}:orderBy:${orderBy ?? 'none'}:orderDirection:${orderDirection}:where:${JSON.stringify(where)}`;
           const cached = await this.cacheManager.get<string>(cacheKey);
           if (cached) return JSON.parse(cached) as Record<string, unknown>[];
 
-          const query = `SELECT * FROM "${subgraphId}"."${tableName}_${chainId}" ${whereClause} ${orderClause} LIMIT ${limit} OFFSET ${offset}`;
+          const query = `SELECT * FROM ${tableName} ${whereClause} ${orderClause} LIMIT ${limit} OFFSET ${offset}`;
           const result = await this.prisma.$queryRawUnsafe(query);
           await this.cacheManager.set(
             cacheKey,
             JSON.stringify(result),
-            60 * 1000,
+            this.cacheExpireIn,
           );
           return result;
         };
@@ -123,7 +97,7 @@ export class QueryService {
           const cached = await this.cacheManager.get<string>(cacheKey);
           if (cached) return JSON.parse(cached) as Record<string, unknown>;
           const query = Prisma.sql`
-                      SELECT * FROM "${Prisma.raw(subgraphId)}"."${Prisma.raw(tableName)}"
+                      SELECT * FROM ${tableName}
                       WHERE id = ${args.id}
                       LIMIT 1`;
           const result: Record<string, unknown>[] =
@@ -133,7 +107,7 @@ export class QueryService {
             await this.cacheManager.set(
               cacheKey,
               JSON.stringify(item),
-              60 * 1000,
+              this.cacheExpireIn,
             );
           }
           return item;
@@ -143,13 +117,13 @@ export class QueryService {
           const cacheKey = `${subgraphId}_${chainId}:${singular}:count`;
           const cached = await this.cacheManager.get(cacheKey);
           if (cached) return Number(cached);
-          const query = Prisma.sql`SELECT COUNT(*) FROM "${Prisma.raw(subgraphId)}"."${Prisma.raw(tableName)}"`;
+          const query = Prisma.sql`SELECT COUNT(*) FROM ${tableName}`;
           const result: Record<string, unknown>[] =
             await this.prisma.$queryRaw(query);
           await this.cacheManager.set(
             cacheKey,
             String(result[0].count),
-            60 * 1000,
+            this.cacheExpireIn,
           );
           return Number(result[0].count);
         };
@@ -162,7 +136,7 @@ export class QueryService {
             relationType !== typeName &&
             typeMap[relationType]
           ) {
-            const relTable = `${relationType.toLowerCase()}_${chainId}`;
+            const tableName = `"${subgraphId}"."${relationType.toLowerCase()}_${chainId}"`;
             resolvers[typeName][field.name.value] = async (parent: any) => {
               const key1 = `${field.name.value}Id`;
               const key2 = `${field.name.value}_id`;
@@ -177,7 +151,7 @@ export class QueryService {
                   : undefined;
               if (!foreignKeyValue) return null;
               const result = await this.prisma.$queryRawUnsafe(
-                `SELECT * FROM "public"."${relTable}" WHERE id = ${foreignKeyValue} LIMIT 1`,
+                `SELECT * FROM ${tableName} WHERE id = ${foreignKeyValue} LIMIT 1`,
               );
               // eslint-disable-next-line @typescript-eslint/no-unsafe-return
               return result![0] ?? null;
@@ -212,7 +186,9 @@ export class QueryService {
     const baseSDL = removeQueryType(schemaSDL);
     const typeNames = extractTypeNames(baseSDL);
     const querySDL = generateQuerySDL(typeNames);
-    const finalSDL = `${baseSDL}\n\n${querySDL}`;
+    const objectTypes = extractObjectTypes(baseSDL);
+    const whereInputs = generateWhereInputs(objectTypes);
+    const finalSDL = `${baseSDL}\n\n${whereInputs}\n\n${querySDL}`;
     const resolvers = this.buildResolvers(finalSDL, subgraphId, chainId);
 
     return makeExecutableSchema({ typeDefs: finalSDL, resolvers });
