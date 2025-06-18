@@ -2,8 +2,11 @@ import { makeExecutableSchema } from '@graphql-tools/schema';
 import { IResolvers } from '@graphql-tools/utils';
 import { Inject, Injectable } from '@nestjs/common';
 import { readFileSync } from 'fs';
-import { GraphQLSchema, ObjectTypeDefinitionNode, parse } from 'graphql';
 import { join } from 'path';
+import { GraphQLSchema, ObjectTypeDefinitionNode, parse } from 'graphql';
+import { Cache, CACHE_MANAGER } from '@nestjs/cache-manager';
+import GraphQLJSON from 'graphql-type-json';
+
 import { PrismaService } from '../prisma/prisma.service';
 import {
   buildWhereClauses,
@@ -15,9 +18,8 @@ import {
   isObjectTypeDefinitionNode,
   removeQueryType,
 } from '../utils';
+
 import { Prisma } from 'generated/prisma';
-import { Cache, CACHE_MANAGER } from '@nestjs/cache-manager';
-import GraphQLJSON from 'graphql-type-json';
 
 @Injectable()
 export class QueryService {
@@ -34,142 +36,180 @@ export class QueryService {
     chainId: number,
   ): IResolvers => {
     const ast = parse(schemaSDL);
-    const resolvers: IResolvers = {
-      Query: {},
-    };
+    const resolvers: IResolvers = { Query: {}, JSON: GraphQLJSON };
     const typeMap: Record<string, ObjectTypeDefinitionNode> = {};
 
     for (const def of ast.definitions) {
-      if (isObjectTypeDefinitionNode(def) && def.name.value !== 'Query') {
-        const typeName = def.name.value;
-        const plural = typeName.toLowerCase() + 's';
-        const singular = typeName.toLowerCase();
-        const count = singular + 'Count';
-        const tableName = `"${subgraphId}"."${typeName.toLowerCase()}_${chainId}"`;
+      if (!isObjectTypeDefinitionNode(def) || def.name.value === 'Query')
+        continue;
 
-        resolvers.Query[plural] = async (
-          _: unknown,
-          args: {
-            limit?: number;
-            offset?: number;
-            orderBy?: string;
-            orderDirection?: string;
-            where?: Record<string, any>;
-          },
-        ) => {
-          const {
-            limit = 10,
-            offset = 0,
-            orderBy,
-            orderDirection,
-            where = {},
-          } = args;
-          const orderClause = orderBy
-            ? `ORDER BY "${orderBy}" ${orderDirection?.toLowerCase() === 'desc' ? 'DESC' : 'ASC'}`
-            : '';
+      const typeName = def.name.value;
+      typeMap[typeName] = def;
+      const many = typeName.toLowerCase() + 's';
+      const single = typeName.toLowerCase();
+      const count = single + 'Count';
+      const tableName = `"${subgraphId}"."${typeName.toLowerCase()}_${chainId}"`;
 
-          const whereClauses: string[] = buildWhereClauses(where);
+      resolvers.Query[many] = this.buildManyResolver(
+        tableName,
+        subgraphId,
+        many,
+        chainId,
+      );
+      resolvers.Query[single] = this.buildSingleResolver(
+        tableName,
+        subgraphId,
+        single,
+        chainId,
+      );
+      resolvers.Query[count] = this.buildCountResolver(
+        tableName,
+        subgraphId,
+        single,
+        chainId,
+      );
 
-          const whereClause =
-            whereClauses.length > 0
-              ? `WHERE ${whereClauses.join(' AND ')}`
-              : '';
+      resolvers[typeName] = this.buildFieldResolvers(
+        def,
+        typeMap,
+        subgraphId,
+        chainId,
+      );
+    }
 
-          const cacheKey = `${subgraphId}_${plural}_${chainId}:limit:${limit}:offset:${offset}:orderBy:${orderBy ?? 'none'}:orderDirection:${orderDirection}:where:${JSON.stringify(where)}`;
-          const cached = await this.cacheManager.get<string>(cacheKey);
-          if (cached) return JSON.parse(cached) as Record<string, unknown>[];
+    console.log(resolvers);
 
-          const query = `SELECT * FROM ${tableName} ${whereClause} ${orderClause} LIMIT ${limit} OFFSET ${offset}`;
-          const result = await this.prisma.$queryRawUnsafe(query);
-          await this.cacheManager.set(
-            cacheKey,
-            JSON.stringify(result),
-            this.cacheExpireIn,
+    return resolvers;
+  };
+
+  private buildManyResolver(
+    tableName: string,
+    subgraphId: string,
+    plural: string,
+    chainId: number,
+  ) {
+    return async (
+      _: unknown,
+      args: {
+        first?: number;
+        skip?: number;
+        orderBy?: string;
+        orderDirection?: string;
+        where?: Record<string, unknown>;
+      },
+    ) => {
+      const {
+        first = 10,
+        skip = 0,
+        orderBy,
+        orderDirection,
+        where = {},
+      } = args;
+      const orderClause = orderBy
+        ? `ORDER BY "${orderBy}" ${orderDirection?.toLowerCase() === 'desc' ? 'DESC' : 'ASC'}`
+        : '';
+      const whereClauses = buildWhereClauses(where);
+      const whereClause =
+        whereClauses.length > 0 ? `WHERE ${whereClauses.join(' AND ')}` : '';
+
+      const cacheKey = `${subgraphId}_${plural}_${chainId}:limit:${first}:offset:${skip}:orderBy:${orderBy ?? 'none'}:orderDirection:${orderDirection}:where:${JSON.stringify(where)}`;
+      const cached = await this.cacheManager.get<string>(cacheKey);
+      if (cached) return JSON.parse(cached) as Record<string, unknown>[];
+
+      const query = `SELECT * FROM ${tableName} ${whereClause} ${orderClause} LIMIT ${first} OFFSET ${skip}`;
+      const result = await this.prisma.$queryRawUnsafe(query);
+      await this.cacheManager.set(
+        cacheKey,
+        JSON.stringify(result),
+        this.cacheExpireIn,
+      );
+      return result;
+    };
+  }
+
+  private buildSingleResolver(
+    tableName: string,
+    subgraphId: string,
+    singular: string,
+    chainId: number,
+  ) {
+    return async (_: unknown, args: { id: number }) => {
+      const cacheKey = `${subgraphId}_${chainId}:${singular}:${args.id}`;
+      const cached = await this.cacheManager.get<string>(cacheKey);
+      if (cached) return JSON.parse(cached) as Record<string, unknown>;
+
+      const query = Prisma.sql`SELECT * FROM ${tableName} WHERE id = ${args.id} LIMIT 1`;
+      const result: Record<string, unknown>[] =
+        await this.prisma.$queryRaw(query);
+      const item = result[0] ?? null;
+
+      if (item)
+        await this.cacheManager.set(
+          cacheKey,
+          JSON.stringify(item),
+          this.cacheExpireIn,
+        );
+      return item;
+    };
+  }
+
+  private buildCountResolver(
+    tableName: string,
+    subgraphId: string,
+    singular: string,
+    chainId: number,
+  ) {
+    return async () => {
+      const cacheKey = `${subgraphId}_${chainId}:${singular}:count`;
+      const cached = await this.cacheManager.get(cacheKey);
+      if (cached) return Number(cached);
+
+      const query = Prisma.sql`SELECT COUNT(*) FROM ${tableName}`;
+      const result: Record<string, unknown>[] =
+        await this.prisma.$queryRaw(query);
+      const count = Number(result[0]?.count);
+
+      await this.cacheManager.set(cacheKey, String(count), this.cacheExpireIn);
+      return count;
+    };
+  }
+
+  private buildFieldResolvers(
+    def: ObjectTypeDefinitionNode,
+    typeMap: Record<string, ObjectTypeDefinitionNode>,
+    subgraphId: string,
+    chainId: number,
+  ): IResolvers {
+    const resolvers: IResolvers = {};
+
+    for (const field of def.fields ?? []) {
+      const fieldName = field.name.value;
+      const relationType = getRelationType(field);
+
+      if (
+        relationType &&
+        relationType !== def.name.value &&
+        typeMap[relationType]
+      ) {
+        const relatedTable = `"${subgraphId}"."${relationType.toLowerCase()}_${chainId}"`;
+        resolvers[fieldName] = async (parent: Record<string, unknown>) => {
+          const key = parent[`${fieldName}Id`] ?? parent[`${fieldName}_id`];
+          if (typeof key !== 'string' && typeof key !== 'number') return null;
+
+          const result = await this.prisma.$queryRawUnsafe(
+            `SELECT * FROM ${relatedTable} WHERE id = ${key} LIMIT 1`,
           );
-          return result;
+          // eslint-disable-next-line @typescript-eslint/no-unsafe-return
+          return result![0] ?? null;
         };
-
-        resolvers.Query[singular] = async (
-          _: unknown,
-          args: { id: number },
-        ): Promise<Record<string, unknown> | null> => {
-          const cacheKey = `${subgraphId}_${chainId}:${singular}:${args.id}`;
-          const cached = await this.cacheManager.get<string>(cacheKey);
-          if (cached) return JSON.parse(cached) as Record<string, unknown>;
-          const query = Prisma.sql`
-                      SELECT * FROM ${tableName}
-                      WHERE id = ${args.id}
-                      LIMIT 1`;
-          const result: Record<string, unknown>[] =
-            await this.prisma.$queryRaw(query);
-          const item = result[0] ?? null;
-          if (item) {
-            await this.cacheManager.set(
-              cacheKey,
-              JSON.stringify(item),
-              this.cacheExpireIn,
-            );
-          }
-          return item;
-        };
-
-        resolvers.Query[count] = async () => {
-          const cacheKey = `${subgraphId}_${chainId}:${singular}:count`;
-          const cached = await this.cacheManager.get(cacheKey);
-          if (cached) return Number(cached);
-          const query = Prisma.sql`SELECT COUNT(*) FROM ${tableName}`;
-          const result: Record<string, unknown>[] =
-            await this.prisma.$queryRaw(query);
-          await this.cacheManager.set(
-            cacheKey,
-            String(result[0].count),
-            this.cacheExpireIn,
-          );
-          return Number(result[0].count);
-        };
-
-        resolvers[typeName] = {};
-        for (const field of def.fields ?? []) {
-          const relationType = getRelationType(field);
-          if (
-            relationType &&
-            relationType !== typeName &&
-            typeMap[relationType]
-          ) {
-            const tableName = `"${subgraphId}"."${relationType.toLowerCase()}_${chainId}"`;
-            resolvers[typeName][field.name.value] = async (parent: any) => {
-              const key1 = `${field.name.value}Id`;
-              const key2 = `${field.name.value}_id`;
-              const rawValue =
-                typeof parent === 'object' && parent
-                  ? ((parent as Record<string, unknown>)[key1] ??
-                    (parent as Record<string, unknown>)[key2])
-                  : undefined;
-              const foreignKeyValue =
-                typeof rawValue === 'string' || typeof rawValue === 'number'
-                  ? rawValue
-                  : undefined;
-              if (!foreignKeyValue) return null;
-              const result = await this.prisma.$queryRawUnsafe(
-                `SELECT * FROM ${tableName} WHERE id = ${foreignKeyValue} LIMIT 1`,
-              );
-              // eslint-disable-next-line @typescript-eslint/no-unsafe-return
-              return result![0] ?? null;
-            };
-          } else {
-            resolvers[typeName][field.name.value] = (
-              parent: Record<string, unknown>,
-            ): unknown => {
-              return parent[field.name.value];
-            };
-          }
-        }
+      } else {
+        resolvers[fieldName] = (parent: Record<string, unknown>) =>
+          parent[fieldName];
       }
     }
 
-    resolvers.JSON = GraphQLJSON;
     return resolvers;
-  };
+  }
 
   createExecutableSchemaFromPrisma = (
     subgraphId: string,
@@ -189,8 +229,8 @@ export class QueryService {
     const objectTypes = extractObjectTypes(baseSDL);
     const whereInputs = generateWhereInputs(objectTypes);
     const finalSDL = `${baseSDL}\n\n${whereInputs}\n\n${querySDL}`;
-    const resolvers = this.buildResolvers(finalSDL, subgraphId, chainId);
 
+    const resolvers = this.buildResolvers(finalSDL, subgraphId, chainId);
     return makeExecutableSchema({ typeDefs: finalSDL, resolvers });
   };
 }

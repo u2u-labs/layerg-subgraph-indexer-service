@@ -49,8 +49,8 @@ export const generateQuerySDL = (typeNames: string[]): string => {
         .map(
           (name) => `
         ${name.toLowerCase()}s(
-          limit: Int = 10,
-          offset: Int = 0,
+          first: Int = 10,
+          skip: Int = 0,
           orderBy: String,
           orderDirection: String = "asc",
           where: ${name}WhereInput 
