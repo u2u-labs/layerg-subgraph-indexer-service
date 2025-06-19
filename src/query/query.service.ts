@@ -1,3 +1,5 @@
+/* eslint-disable @typescript-eslint/restrict-template-expressions */
+/* eslint-disable @typescript-eslint/no-unsafe-return */
 import { makeExecutableSchema } from '@graphql-tools/schema';
 import { IResolvers } from '@graphql-tools/utils';
 import { Inject, Injectable } from '@nestjs/common';
@@ -39,12 +41,19 @@ export class QueryService {
     const resolvers: IResolvers = { Query: {}, JSON: GraphQLJSON };
     const typeMap: Record<string, ObjectTypeDefinitionNode> = {};
 
+    // First pass: populate typeMap
+    for (const def of ast.definitions) {
+      if (isObjectTypeDefinitionNode(def)) {
+        typeMap[def.name.value] = def;
+      }
+    }
+
+    // Second pass: generate resolvers
     for (const def of ast.definitions) {
       if (!isObjectTypeDefinitionNode(def) || def.name.value === 'Query')
         continue;
 
       const typeName = def.name.value;
-      typeMap[typeName] = def;
       const many = typeName.toLowerCase() + 's';
       const single = typeName.toLowerCase();
       const count = single + 'Count';
@@ -76,8 +85,6 @@ export class QueryService {
         chainId,
       );
     }
-
-    console.log(resolvers);
 
     return resolvers;
   };
@@ -193,14 +200,24 @@ export class QueryService {
       ) {
         const relatedTable = `"${subgraphId}"."${relationType.toLowerCase()}_${chainId}"`;
         resolvers[fieldName] = async (parent: Record<string, unknown>) => {
-          const key = parent[`${fieldName}Id`] ?? parent[`${fieldName}_id`];
-          if (typeof key !== 'string' && typeof key !== 'number') return null;
+          const key =
+            parent[`${fieldName}Id`] ??
+            parent[`${fieldName}_id`] ??
+            (typeof parent[fieldName] === 'string' ||
+            typeof parent[fieldName] === 'number'
+              ? parent[fieldName]
+              : undefined);
 
-          const result = await this.prisma.$queryRawUnsafe(
-            `SELECT * FROM ${relatedTable} WHERE id = ${key} LIMIT 1`,
-          );
-          // eslint-disable-next-line @typescript-eslint/no-unsafe-return
-          return result![0] ?? null;
+          if (typeof key === 'undefined') return null;
+
+          const query =
+            typeof key === 'number'
+              ? `SELECT * FROM ${relatedTable} WHERE id = ${key} LIMIT 1`
+              : // eslint-disable-next-line @typescript-eslint/no-base-to-string
+                `SELECT * FROM ${relatedTable} WHERE id = '${key}' LIMIT 1`;
+
+          const result: any[] = await this.prisma.$queryRawUnsafe(query);
+          return result?.[0] ?? null;
         };
       } else {
         resolvers[fieldName] = (parent: Record<string, unknown>) =>

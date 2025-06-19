@@ -122,43 +122,52 @@ export const buildWhereClauses = (where: Record<string, any>) => {
   return whereClauses;
 };
 
-const getScalarType = (type: any): string => {
+export const getScalarType = (type: any): string => {
   // eslint-disable-next-line @typescript-eslint/no-unsafe-return
   if (type.kind === 'NamedType') return type.name.value;
   if (type.kind === 'NonNullType') return getScalarType(type.type);
   return 'String';
 };
 
-const isScalarField = (scalar: string): boolean => {
-  return ['String', 'Int', 'Float', 'Boolean', 'ID'].includes(scalar);
+export const isScalarField = (type: string): boolean => {
+  return ['String', 'Int', 'Float', 'Boolean', 'ID'].includes(type);
 };
 
 export const generateWhereInputs = (
   types: ObjectTypeDefinitionNode[],
 ): string => {
+  const typeMap = new Map(types.map((t) => [t.name.value, t]));
+
   return types
     .map((type) => {
       const typeName = type.name.value;
       const fields = type.fields ?? [];
+
       const filters = fields
         .map((field) => {
           const name = field.name.value;
-          const scalar = getScalarType(field.type);
+          const fieldType = getScalarType(field.type);
 
-          if (!isScalarField(scalar)) return ''; // skip object fields
+          if (isScalarField(fieldType)) {
+            return [
+              `${name}: ${fieldType}`,
+              `${name}_in: [${fieldType}!]`,
+              `${name}_not_in: [${fieldType}!]`,
+              `${name}_gt: ${fieldType}`,
+              `${name}_gte: ${fieldType}`,
+              `${name}_lt: ${fieldType}`,
+              `${name}_lte: ${fieldType}`,
+            ].join('\n');
+          } else if (typeMap.has(fieldType)) {
+            // relation field
+            return `${name}: ${fieldType}WhereInput`;
+          }
 
-          return [
-            `${name}: ${scalar}`,
-            `${name}_in: [${scalar}!]`,
-            `${name}_not_in: [${scalar}!]`,
-            `${name}_gt: ${scalar}`,
-            `${name}_gte: ${scalar}`,
-            `${name}_lt: ${scalar}`,
-            `${name}_lte: ${scalar}`,
-          ].join('\n');
+          return '';
         })
         .filter(Boolean)
         .join('\n');
+
       return `input ${typeName}WhereInput {\n${filters}\n}`;
     })
     .join('\n\n');

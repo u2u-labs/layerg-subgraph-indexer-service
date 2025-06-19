@@ -13,6 +13,7 @@ export class QueryController {
     @Query('chainId') chainId: string,
     @Query('id') id: string,
   ) {
+    console.log('chainId', chainId);
     const schema = this.queryService.createExecutableSchemaFromPrisma(
       id,
       Number(chainId),
