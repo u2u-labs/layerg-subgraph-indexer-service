@@ -2,7 +2,7 @@ import { Module } from '@nestjs/common';
 import { AppController } from './app.controller';
 import { CacheableMemory } from 'cacheable';
 import { AppService } from './app.service';
-import { QueryModule } from './query/query.module';
+import { GraphqlModule } from './graphql/graphql.module';
 import { ConfigModule } from '@nestjs/config';
 import { PrismaModule } from './prisma/prisma.module';
 import { CacheModule } from '@nestjs/cache-manager';
@@ -68,7 +68,7 @@ import { SubgraphssModule } from './subgraphs/subgraphs.module';
       },
     }),
     SubgraphssModule,
-    QueryModule,
+    GraphqlModule,
     PrismaModule,
   ],
   controllers: [AppController],

@@ -24,7 +24,7 @@ import {
 import { Prisma } from 'generated/prisma';
 
 @Injectable()
-export class QueryService {
+export class GraphqlService {
   private readonly cacheExpireIn = 60 * 1000; // 1 minute
 
   constructor(

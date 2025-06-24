@@ -1,10 +1,10 @@
 import { All, Controller, Query, Req, Res } from '@nestjs/common';
-import { QueryService } from './query.service';
+import { GraphqlService } from './graphql.service';
 import { graphqlHTTP } from 'express-graphql';
 
-@Controller('query')
-export class QueryController {
-  constructor(private readonly queryService: QueryService) {}
+@Controller('graphql')
+export class GraphqlController {
+  constructor(private readonly graphqlService: GraphqlService) {}
 
   @All()
   async handle(
@@ -14,7 +14,7 @@ export class QueryController {
     @Query('id') id: string,
   ) {
     console.log('chainId', chainId);
-    const schema = this.queryService.createExecutableSchemaFromPrisma(
+    const schema = this.graphqlService.createExecutableSchemaFromPrisma(
       id,
       Number(chainId),
     );
