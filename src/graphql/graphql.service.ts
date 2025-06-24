@@ -235,7 +235,7 @@ export class GraphqlService {
     const filePath = join(
       process.cwd(),
       'src',
-      'query',
+      'graphql',
       subgraphId,
       'schema.graphql',
     );
