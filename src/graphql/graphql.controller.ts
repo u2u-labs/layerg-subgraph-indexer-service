@@ -13,7 +13,6 @@ export class GraphqlController {
     @Query('chainId') chainId: string,
     @Query('id') id: string,
   ) {
-    console.log('chainId', chainId);
     const schema = this.graphqlService.createExecutableSchemaFromPrisma(
       id,
       Number(chainId),
