@@ -10,6 +10,8 @@ import { createKeyv, Keyv } from '@keyv/redis';
 import { LoggerModule } from 'nestjs-pino';
 import { Request, Response } from 'express';
 import { SubgraphssModule } from './subgraphs/subgraphs.module';
+import { ListenerModule } from './listener/listener.module';
+import { EventsModule } from './events/events.module';
 
 @Module({
   imports: [
@@ -70,6 +72,8 @@ import { SubgraphssModule } from './subgraphs/subgraphs.module';
     SubgraphssModule,
     GraphqlModule,
     PrismaModule,
+    ListenerModule,
+    EventsModule,
   ],
   controllers: [AppController],
   providers: [AppService],
