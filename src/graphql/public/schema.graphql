@@ -1,11 +1,11 @@
-type Post @entity {
+type Post {
   id: ID!
   title: String!
   content: String!
   user: User!
 }
 
-type User @entity {
+type User {
   id: ID!
   username: String!
   name: String!

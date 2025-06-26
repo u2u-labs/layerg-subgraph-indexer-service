@@ -22,6 +22,7 @@ import {
 } from '../utils';
 
 import { Prisma } from 'generated/prisma';
+import { console } from 'inspector';
 
 @Injectable()
 export class GraphqlService {
@@ -55,9 +56,9 @@ export class GraphqlService {
 
       const typeName = def.name.value;
       const many = typeName.toLowerCase() + 's';
-      const single = typeName.toLowerCase();
+      const single = typeName.toLowerCase() + '';
       const count = single + 'Count';
-      const tableName = `"${subgraphId}"."${typeName.toLowerCase()}_${chainId}"`;
+      const tableName = `"${subgraphId}"."${typeName.toLowerCase()}s_${chainId}"`;
 
       resolvers.Query[many] = this.buildManyResolver(
         tableName,
@@ -116,6 +117,7 @@ export class GraphqlService {
         ? `ORDER BY "${orderBy}" ${orderDirection?.toLowerCase() === 'desc' ? 'DESC' : 'ASC'}`
         : '';
       const whereClauses = buildWhereClauses(where);
+      console.log(whereClauses);
       const whereClause =
         whereClauses.length > 0 ? `WHERE ${whereClauses.join(' AND ')}` : '';
 
@@ -124,6 +126,7 @@ export class GraphqlService {
       if (cached) return JSON.parse(cached) as Record<string, unknown>[];
 
       const query = `SELECT * FROM ${tableName} ${whereClause} ${orderClause} LIMIT ${first} OFFSET ${skip}`;
+      console.log(`Executing query: ${query}`);
       const result = await this.prisma.$queryRawUnsafe(query);
       await this.cacheManager.set(
         cacheKey,
@@ -198,7 +201,7 @@ export class GraphqlService {
         relationType !== def.name.value &&
         typeMap[relationType]
       ) {
-        const relatedTable = `"${subgraphId}"."${relationType.toLowerCase()}_${chainId}"`;
+        const relatedTable = `"${subgraphId}"."${relationType.toLowerCase()}s_${chainId}"`;
         resolvers[fieldName] = async (parent: Record<string, unknown>) => {
           const key =
             parent[`${fieldName}Id`] ??

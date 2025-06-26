@@ -115,10 +115,9 @@ export const buildWhereClauses = (where: Record<string, any>) => {
         `"${field}" <= ${typeof val === 'number' ? val : `'${val}'`}`,
       );
     } else if (typeof val === 'string') {
-      whereClauses.push(`"${key}" ILIKE '%${val}%'`);
+      whereClauses.push(`"${key}" = '${val}'`);
     }
   }
-
   return whereClauses;
 };
 
