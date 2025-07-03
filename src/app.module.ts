@@ -12,6 +12,7 @@ import { Request, Response } from 'express';
 import { SubgraphssModule } from './subgraphs/subgraphs.module';
 import { ListenerModule } from './listener/listener.module';
 import { EventsModule } from './events/events.module';
+import { LoggingModule } from './logging/logging.module';
 
 @Module({
   imports: [
@@ -74,6 +75,7 @@ import { EventsModule } from './events/events.module';
     PrismaModule,
     ListenerModule,
     EventsModule,
+    LoggingModule,
   ],
   controllers: [AppController],
   providers: [AppService],
