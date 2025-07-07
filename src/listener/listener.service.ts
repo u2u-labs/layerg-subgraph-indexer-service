@@ -42,7 +42,7 @@ export class ListenerService implements OnModuleInit, OnModuleDestroy {
       this.isListening = true;
 
       // Handle incoming notifications
-      this.notificationClient.on('notification', (msg) => {
+      this.notificationClient.on('notification', (msg: any) => {
         this.handleDatabaseNotification(msg);
       });
 
@@ -57,10 +57,18 @@ export class ListenerService implements OnModuleInit, OnModuleDestroy {
     }
   }
 
-  private handleDatabaseNotification(msg: any) {
+  private handleDatabaseNotification(msg: {
+    channel: string;
+    payload: string;
+  }) {
     try {
       if (msg.channel === 'table_events') {
-        const payload = JSON.parse(msg.payload);
+        const payload = JSON.parse(msg.payload) as {
+          action: string;
+          table_name: string;
+          data: unknown;
+          schema_name: string;
+        };
 
         // Extract table information from the payload
         const { action, table_name, data, schema_name } = payload;

@@ -235,13 +235,7 @@ export class GraphqlService {
     subgraphId: string,
     chainId: number,
   ): GraphQLSchema => {
-    const filePath = join(
-      process.cwd(),
-      'src',
-      'graphql',
-      subgraphId,
-      'schema.graphql',
-    );
+    const filePath = join(process.cwd(), 'schema.graphql');
     const schemaSDL = readFileSync(filePath, 'utf-8');
     const baseSDL = removeQueryType(schemaSDL);
     const typeNames = extractTypeNames(baseSDL);
