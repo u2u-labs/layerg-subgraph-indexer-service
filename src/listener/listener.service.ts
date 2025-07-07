@@ -122,9 +122,9 @@ export class ListenerService implements OnModuleInit, OnModuleDestroy {
     if (this.isListening) {
       this.logger.log('Attempting to reconnect to database listener...');
       await this.cleanup();
-      setTimeout(() => {
-        this.setupDatabaseListener();
-      }, 5000);
+      await new Promise((resolve) => setTimeout(resolve, 5000));
+      await this.setupDatabaseListener();
+      this.logger.log('Reconnection successful');
     }
   }
 
